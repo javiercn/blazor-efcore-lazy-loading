@@ -13,8 +13,8 @@ namespace BlazorDbConcurrencyRepro.Data;
 /// operations on the same DbContext. This is critical for Blazor Server where
 /// multiple components may trigger lazy loading concurrently.
 /// 
-/// This loader gets the semaphore from the DbContext via ISerializingDbContext interface,
-/// ensuring it uses the same semaphore as SerializingDbContext for query serialization.
+/// This loader gets the semaphore from the SerializingDbContext,
+/// ensuring it uses the same semaphore for query serialization.
 /// 
 /// Since lazy loading is inherently synchronous (property getter triggers Load()),
 /// we use synchronous Wait() on the semaphore - blocking is acceptable here.
@@ -39,11 +39,11 @@ public class SerializingLazyLoader : ILazyLoader, IInjectableService
     protected DbContext? Context => _currentContext?.Context;
 
     /// <summary>
-    /// Gets the semaphore from the DbContext if it implements ISerializingDbContext.
+    /// Gets the semaphore from the DbContext if it's a SerializingDbContext.
     /// Returns null if the DbContext doesn't support serialization.
     /// </summary>
     private SemaphoreSlim? GetSemaphore() 
-        => (Context as ISerializingDbContext)?.OperationSemaphore;
+        => (Context as SerializingDbContext)?.OperationSemaphore;
 
     /// <summary>
     /// Called by EF Core when injecting the lazy loader into an entity.

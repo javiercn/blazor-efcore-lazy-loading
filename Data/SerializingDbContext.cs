@@ -8,15 +8,12 @@ namespace BlazorDbConcurrencyRepro.Data;
 /// Derived classes don't need any special code - all DbSet access and SaveChanges operations
 /// are automatically serialized.
 /// 
-/// This class implements ISerializingDbContext to expose its semaphore to SerializingLazyLoader,
-/// ensuring that lazy loading operations are also serialized.
-/// 
 /// Usage:
 /// 1. Inherit from SerializingDbContext instead of DbContext
 /// 2. Use Set&lt;TEntity&gt;() or DbSet properties as normal - they automatically serialize
 /// 3. For lazy loading support, use ReplaceService&lt;ILazyLoader, SerializingLazyLoader&gt;()
 /// </summary>
-public abstract class SerializingDbContext : DbContext, ISerializingDbContext
+public abstract class SerializingDbContext : DbContext
 {
     // Each DbContext instance has its own semaphore (1 concurrent operation)
     private readonly SemaphoreSlim _operationSemaphore = new(1, 1);
@@ -36,8 +33,9 @@ public abstract class SerializingDbContext : DbContext, ISerializingDbContext
 
     /// <summary>
     /// Gets the semaphore used to serialize operations on this DbContext.
+    /// Used internally by SerializingLazyLoader.
     /// </summary>
-    public SemaphoreSlim OperationSemaphore => _operationSemaphore;
+    internal SemaphoreSlim OperationSemaphore => _operationSemaphore;
 
     public override DbSet<TEntity> Set<TEntity>()
     {

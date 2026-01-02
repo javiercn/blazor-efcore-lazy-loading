@@ -45,7 +45,6 @@ This solution provides a comprehensive approach that serializes all DbContext op
 
 | File | Purpose |
 |------|---------|
-| `Data/DbContextOperationLock.cs` | `ISerializingDbContext` interface exposing the semaphore |
 | `Data/SerializingDbContext.cs` | Base DbContext class with automatic serialization |
 | `Data/SerializingDbSet.cs` | DbSet wrapper that serializes all query operations |
 | `Data/SerializingLazyLoader.cs` | Custom `ILazyLoader` for lazy loading support |
@@ -57,7 +56,6 @@ This solution provides a comprehensive approach that serializes all DbContext op
 ### Step 1: Add the Infrastructure Classes
 
 Copy these files into your project's `Data/` folder:
-- `DbContextOperationLock.cs`  
 - `SerializingDbContext.cs`
 - `SerializingDbSet.cs`
 - `SerializingLazyLoader.cs`
@@ -203,7 +201,6 @@ public void Load(object entity, string navigationName)
 ```
 ├── Data/
 │   ├── AppDbContext.cs              # Your DbContext (inherits SerializingDbContext)
-│   ├── DbContextOperationLock.cs    # ISerializingDbContext interface
 │   ├── SerializingDbContext.cs      # Base class with serialization
 │   ├── SerializingDbSet.cs          # Query wrapper
 │   ├── SerializingLazyLoader.cs     # Lazy loading support
