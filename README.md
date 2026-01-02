@@ -45,24 +45,30 @@ This solution provides a comprehensive approach that serializes all DbContext op
 
 | File | Purpose |
 |------|---------|
-| `Data/SerializingDbContext.cs` | Base DbContext class with automatic serialization |
-| `Data/SerializingDbSet.cs` | DbSet wrapper that serializes all query operations |
-| `Data/SerializingLazyLoader.cs` | Custom `ILazyLoader` for lazy loading support |
-
----
-
-## Tutorial: How to Use SerializingDbContext
+| `Data/Serialization/SerializingDbContext.cs` | Base DbContext class with automatic serialization |
+| `Data/Serialization/SerializingDbSet.cs` | DbSet wrapper that serializes all query operations |
+| `Data/Serialization/SerializingQueryProvider.cs` | Query provider wrapper for async execution |
+| `Data/Serialization/SerializingQueryable.cs` | Queryable wrappers maintaining the provider chain |
+| `Data/Serialization/ImmediatelyLockingQueryableEnumerator.cs` | Enumerator that holds semaphore until DisposeAsync |
+| `Data/Serialization/ImmediatelyLockingAsyncEnumerable.cs` | Async enumerable/enumerator for ToListAsync scenarios |
+| `Data/Serialization/DeferredLockingAsyncEnumerator.cs` | Deferred enumerator for DbSet.GetAsyncEnumerator |
+| `Data/Serialization/SerializingLazyLoader.cs` | Custom `ILazyLoader` for lazy loading support |
 
 ### Step 1: Add the Infrastructure Classes
 
-Copy these files into your project's `Data/` folder:
-- `SerializingDbContext.cs`
-- `SerializingDbSet.cs`
-- `SerializingLazyLoader.cs`
+Copy the `Data/Serialization/` folder into your project. It contains:
+- `SerializingDbContext.cs` - Base DbContext with semaphore
+- `SerializingDbSet.cs` - DbSet wrapper
+- `SerializingQueryProvider.cs` - Query provider wrapper
+- `SerializingQueryable.cs` - Queryable wrappers
+- `ImmediatelyLockingQueryableEnumerator.cs` - Queryable enumerator
+- `ImmediatelyLockingAsyncEnumerable.cs` - Async enumerable/enumerator
+- `DeferredLockingAsyncEnumerator.cs` - Deferred enumerator
+- `SerializingLazyLoader.cs` - Lazy loading support
 
 ### Step 2: Inherit from SerializingDbContext
 
-Change your DbContext to inherit from `SerializingDbContext` instead of `DbContext`:
+Change your DbContext to inherit from `SerializingDbContext` instead of `DbContext`. Add a using statement for the Serialization namespace:
 
 ```csharp
 // Before:
@@ -73,6 +79,8 @@ public class AppDbContext : DbContext
 }
 
 // After:
+using YourNamespace.Data.Serialization;  // Add this using statement
+
 public class AppDbContext : SerializingDbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
@@ -85,6 +93,8 @@ public class AppDbContext : SerializingDbContext
 ### Step 3: Configure Services in Program.cs
 
 ```csharp
+using YourNamespace.Data.Serialization;  // Add this for SerializingLazyLoader
+
 // Enable MARS in your connection string (required for lazy loading)
 var connectionString = "Server=(localdb)\\mssqllocaldb;Database=MyApp;Trusted_Connection=True;MultipleActiveResultSets=true";
 
@@ -201,11 +211,15 @@ public void Load(object entity, string navigationName)
 ```
 ├── Data/
 │   ├── AppDbContext.cs              # Your DbContext (inherits SerializingDbContext)
-│   ├── SerializingDbContext.cs      # Base class with serialization
-│   ├── SerializingDbSet.cs          # Query wrapper
-│   ├── SerializingLazyLoader.cs     # Lazy loading support
-│   ├── Todo.cs                      # Entity
-│   └── Category.cs                  # Entity
+│   └── Serialization/
+│       ├── SerializingDbContext.cs              # Base class with serialization
+│       ├── SerializingDbSet.cs                  # DbSet wrapper
+│       ├── SerializingQueryProvider.cs          # Query provider wrapper
+│       ├── SerializingQueryable.cs              # Queryable wrappers
+│       ├── ImmediatelyLockingQueryableEnumerator.cs  # Queryable enumerator
+│       ├── ImmediatelyLockingAsyncEnumerable.cs # Async enumerable/enumerator
+│       ├── DeferredLockingAsyncEnumerator.cs    # Deferred enumerator
+│       └── SerializingLazyLoader.cs             # Lazy loading support
 ├── Components/
 │   ├── TodoList.razor               # Component loading todos
 │   ├── CategoryList.razor           # Component loading categories  
