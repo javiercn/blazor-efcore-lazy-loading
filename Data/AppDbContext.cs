@@ -1,3 +1,4 @@
+using BlazorDbConcurrencyRepro.Data.Serialization;
 using Microsoft.EntityFrameworkCore;
 
 namespace BlazorDbConcurrencyRepro.Data;

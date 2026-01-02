@@ -1,5 +1,6 @@
 using BlazorDbConcurrencyRepro.Components;
 using BlazorDbConcurrencyRepro.Data;
+using BlazorDbConcurrencyRepro.Data.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 

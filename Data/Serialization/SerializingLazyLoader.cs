@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.EntityFrameworkCore.Metadata;
 
-namespace BlazorDbConcurrencyRepro.Data;
+namespace BlazorDbConcurrencyRepro.Data.Serialization;
 
 /// <summary>
 /// A custom ILazyLoader that wraps lazy loading calls with a semaphore to serialize

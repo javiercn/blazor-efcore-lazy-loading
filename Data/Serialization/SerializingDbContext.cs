@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 
-namespace BlazorDbConcurrencyRepro.Data;
+namespace BlazorDbConcurrencyRepro.Data.Serialization;
 
 /// <summary>
 /// A DbContext base class that automatically serializes all operations using a SemaphoreSlim.
