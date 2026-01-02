@@ -17,28 +17,28 @@ This solution provides a comprehensive approach that serializes all DbContext op
 
 ### Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    SerializingDbContext                      │
-│  - Owns the SemaphoreSlim(1,1)                              │
-│  - Overrides Set<T>() to return SerializingDbSet<T>         │
-│  - Wraps SaveChanges with semaphore acquisition             │
-└─────────────────────────────────────────────────────────────┘
-           │                                    │
-           ▼                                    ▼
-┌─────────────────────┐            ┌─────────────────────────┐
-│  SerializingDbSet   │            │  SerializingLazyLoader  │
-│  - Wraps all LINQ   │            │  - Wraps ILazyLoader    │
-│    query operations │            │  - Acquires semaphore   │
-│  - Uses semaphore   │            │    for lazy loading     │
-└─────────────────────┘            └─────────────────────────┘
-           │                                    │
-           └──────────────┬─────────────────────┘
-                          ▼
-                 ┌─────────────────┐
-                 │  SemaphoreSlim  │
-                 │      (1,1)      │
-                 └─────────────────┘
+```mermaid
+flowchart TB
+    subgraph SerializingDbContext["SerializingDbContext"]
+        semaphore["SemaphoreSlim(1,1)"]
+        setMethod["Set&lt;T&gt;()"]
+        saveChanges["SaveChanges()"]
+    end
+    
+    subgraph SerializingDbSet["SerializingDbSet&lt;T&gt;"]
+        queryProvider["SerializingQueryProvider"]
+        enumerators["Locking Enumerators"]
+    end
+    
+    subgraph SerializingLazyLoader["SerializingLazyLoader"]
+        load["Load()"]
+        loadAsync["LoadAsync()"]
+    end
+    
+    setMethod --> SerializingDbSet
+    SerializingDbSet --> semaphore
+    SerializingLazyLoader --> semaphore
+    saveChanges --> semaphore
 ```
 
 ### Key Files
@@ -145,64 +145,41 @@ else
 
 ## How It Works
 
-### The Key Insight: ConfigureAwait(false)
+### SerializingDbContext: The Central Coordinator
 
-The critical piece that makes this solution work—especially for lazy loading—is using `ConfigureAwait(false)` on all async operations.
+`SerializingDbContext` is the heart of this solution. It's a base class you inherit from instead of `DbContext`, and it owns a single `SemaphoreSlim(1,1)` that serializes all database operations.
 
-In Blazor Server, code runs on a synchronization context. When lazy loading triggers (which is synchronous), it needs to wait for the semaphore. Without `ConfigureAwait(false)`, this would deadlock:
+When you call `Set<T>()` to get a DbSet, the base class intercepts this and returns a `SerializingDbSet<T>` wrapper instead of the raw DbSet. This wrapper ensures all query operations go through the semaphore. Similarly, `SaveChanges()` and `SaveChangesAsync()` are overridden to acquire the semaphore before executing.
 
-```
-1. Component A holds the semaphore, awaiting a query
-2. Component B tries to lazy load, waits synchronously for semaphore
-3. Component A's query completes, but the continuation needs the sync context
-4. Component B is blocking the sync context, waiting for the semaphore
-5. DEADLOCK!
-```
+The key insight is that **all paths to the database**—queries, saves, and lazy loading—flow through the same semaphore. This guarantees only one operation executes at a time, eliminating the "second operation started" error.
 
-With `ConfigureAwait(false)`, Component A's continuation runs on a thread pool thread instead:
+### SerializingDbSet: Wrapping Query Operations
 
-```
-1. Component A holds the semaphore, awaiting a query (with ConfigureAwait(false))
-2. Component B tries to lazy load, waits synchronously for semaphore
-3. Component A's query completes, continuation runs on thread pool (not sync context)
-4. Component A releases semaphore on thread pool thread
-5. Component B acquires semaphore, lazy loading proceeds
-6. SUCCESS!
-```
+`SerializingDbSet<T>` wraps the real `DbSet<T>` and intercepts all LINQ operations. The challenge is that LINQ queries are lazily evaluated—when you write `.Where(...).OrderBy(...)`, nothing executes until you enumerate the results (via `ToListAsync()`, `foreach`, etc.).
 
-### SerializingDbSet
+To handle this, `SerializingDbSet` provides a custom `IQueryProvider` (`SerializingQueryProvider`) that wraps query execution. When EF Core finally executes a query, our provider:
 
-The `SerializingDbSet<T>` wraps all LINQ operations and ensures the semaphore is held for the entire enumeration:
+1. **Acquires the semaphore** before the query starts
+2. **Holds the semaphore** while results stream from the database (the DataReader is open)
+3. **Releases the semaphore** only after enumeration completes or the enumerator is disposed
 
-```csharp
-// When you call:
-await dbContext.Set<Todo>().Where(t => t.IsComplete).ToListAsync();
+This last point is critical. SQL Server connections can't have multiple open DataReaders simultaneously. If we released the semaphore when `MoveNextAsync()` returns false (end of results), another query could start before the DataReader is properly closed. Instead, we wait for `DisposeAsync()` on the enumerator, which the `await foreach` pattern guarantees will be called.
 
-// SerializingDbSet ensures:
-// 1. Semaphore is acquired BEFORE the query starts
-// 2. Semaphore is held during entire result enumeration
-// 3. Semaphore is released AFTER enumeration completes (or on error)
-```
+### SerializingLazyLoader: Handling Navigation Properties
 
-### SerializingLazyLoader
+Lazy loading presents a unique challenge: it's triggered synchronously when you access a navigation property (e.g., `todo.Category`). The `SerializingLazyLoader` replaces EF Core's default lazy loader and acquires the same semaphore used by queries.
 
-The `SerializingLazyLoader` replaces EF Core's default lazy loader and acquires the semaphore synchronously:
+Since lazy loading is synchronous, it uses `semaphore.Wait()` rather than `WaitAsync()`. This works safely because all async operations in the serialization classes use `ConfigureAwait(false)`, ensuring their continuations don't need the synchronization context and can complete on thread pool threads even if the sync context is blocked.
 
-```csharp
-public void Load(object entity, string navigationName)
-{
-    // Acquire semaphore synchronously - safe because all async ops use ConfigureAwait(false)
-    _semaphore.Wait();
-    try
-    {
-        // Load the navigation property
-    }
-    finally
-    {
-        _semaphore.Release();
-    }
-}
-```
+### The Complete Picture
+
+When multiple Blazor components trigger database operations concurrently:
+
+1. **Component A** calls `ToListAsync()` → acquires semaphore → query executes
+2. **Component B** calls `ToListAsync()` → waits for semaphore (queued)
+3. **Component A** finishes enumeration → disposes enumerator → releases semaphore
+4. **Component B** acquires semaphore → its query executes
+5. Both components complete successfully, just serialized instead of concurrent
 
 ---
 
