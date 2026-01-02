@@ -64,26 +64,17 @@
     {
         _loading = true;
         _error = null;
-        await InvokeAsync(StateHasChanged);
+        StateHasChanged();
 
         try
         {
             Logger.LogInformation("Component {Id}: Starting to load todos...", ComponentId);
             
-            // Yield to allow other concurrent operations to start
-            await Task.Yield();
-            
-            // LAZY LOADING TEST: No .Include() - rely on proxy lazy loading
-            // SerializingLazyLoader + AsyncLock serializes both async queries 
-            // AND synchronous lazy loading calls using async-flow reentrancy
             _todos = await Context.TodoItems
                 .OrderBy(t => t.Id)
                 .ToListAsync();
             
             // Access navigation property to trigger lazy loading
-            // This will call ILazyLoader.Load() which our SerializingLazyLoader handles
-            // The reentrant AsyncLock allows this to work even if another component
-            // has the lock, as long as we're in the same async flow
             foreach (var todo in _todos)
             {
                 _ = todo.Category?.Name; // Trigger lazy load
@@ -100,7 +91,7 @@
         finally
         {
             _loading = false;
-            await InvokeAsync(StateHasChanged); // Ensure UI updates on Blazor's sync context
+            StateHasChanged();
         }
     }
 

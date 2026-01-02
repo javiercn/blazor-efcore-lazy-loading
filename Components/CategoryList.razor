@@ -60,24 +60,17 @@
     {
         _loading = true;
         _error = null;
-        await InvokeAsync(StateHasChanged);
+        StateHasChanged();
 
         try
         {
             Logger.LogInformation("CategoryComponent {Id}: Starting to load categories...", ComponentId);
             
-            // Yield to allow other concurrent operations to start
-            await Task.Yield();
-            
-            // LAZY LOADING TEST: No .Include() - rely on proxy lazy loading
-            // SerializingLazyLoader + IDbContextOperationLock serializes both
-            // async queries AND synchronous lazy loading calls
             _categories = await Context.Categories
                 .OrderBy(c => c.Name)
                 .ToListAsync();
             
             // Access navigation property to trigger lazy loading
-            // This will call ILazyLoader.Load() which our SerializingLazyLoader handles
             foreach (var category in _categories)
             {
                 _ = category.TodoItems.Count; // Trigger lazy load
@@ -94,7 +87,7 @@
         finally
         {
             _loading = false;
-            await InvokeAsync(StateHasChanged); // Ensure UI updates on Blazor's sync context
+            StateHasChanged();
         }
     }
 }
