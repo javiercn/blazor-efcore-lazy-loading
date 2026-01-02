@@ -1,0 +1,100 @@
+@* 
+   TRANSPARENT SERIALIZATION: The DbContext now uses SerializingDbSet wrappers
+   that automatically serialize async operations. No manual locking needed!
+*@
+@inject AppDbContext Context
+@inject ILogger<CategoryList> Logger
+
+<div class="card">
+    <div class="card-header">
+        <h4>Categories (Component @ComponentId)</h4>
+    </div>
+    <div class="card-body">
+        @if (_loading)
+        {
+            <p><em>Loading categories...</em></p>
+        }
+        else if (_error != null)
+        {
+            <div class="alert alert-danger">
+                <strong>Error:</strong> @_error
+            </div>
+        }
+        else if (_categories != null)
+        {
+            <ul class="list-group">
+                @foreach (var category in _categories)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        @category.Name
+                        <span class="badge bg-primary rounded-pill">@category.TodoItems.Count todos</span>
+                    </li>
+                }
+            </ul>
+            <p class="mt-2 text-muted small">Loaded @_categories.Count categories at @_loadedAt.ToString("HH:mm:ss.fff")</p>
+        }
+        <button class="btn btn-secondary mt-2" @onclick="LoadDataAsync">Refresh</button>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int ComponentId { get; set; }
+
+    private List<Category>? _categories;
+    private bool _loading = true;
+    private string? _error;
+    private DateTime _loadedAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    public async Task RefreshAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        _error = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            Logger.LogInformation("CategoryComponent {Id}: Starting to load categories...", ComponentId);
+            
+            // Yield to allow other concurrent operations to start
+            await Task.Yield();
+            
+            // LAZY LOADING TEST: No .Include() - rely on proxy lazy loading
+            // SerializingLazyLoader + IDbContextOperationLock serializes both
+            // async queries AND synchronous lazy loading calls
+            _categories = await Context.Categories
+                .OrderBy(c => c.Name)
+                .ToListAsync();
+            
+            // Access navigation property to trigger lazy loading
+            // This will call ILazyLoader.Load() which our SerializingLazyLoader handles
+            foreach (var category in _categories)
+            {
+                _ = category.TodoItems.Count; // Trigger lazy load
+            }
+            
+            _loadedAt = DateTime.Now;
+            Logger.LogInformation("CategoryComponent {Id}: Loaded {Count} categories successfully", ComponentId, _categories.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "CategoryComponent {Id}: Error loading categories", ComponentId);
+            _error = $"Failed to load: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged); // Ensure UI updates on Blazor's sync context
+        }
+    }
+}

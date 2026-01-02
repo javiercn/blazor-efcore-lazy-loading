@@ -1,0 +1,130 @@
+@* 
+   TRANSPARENT SERIALIZATION: The DbContext now uses SerializingDbSet wrappers
+   that automatically serialize async operations. No manual locking needed!
+*@
+@inject AppDbContext Context
+@inject ILogger<TodoList> Logger
+
+<div class="card">
+    <div class="card-header">
+        <h4>Todo List (Component @ComponentId)</h4>
+    </div>
+    <div class="card-body">
+        @if (_loading)
+        {
+            <p><em>Loading todos...</em></p>
+        }
+        else if (_error != null)
+        {
+            <div class="alert alert-danger">
+                <strong>Error:</strong> @_error
+            </div>
+        }
+        else if (_todos != null)
+        {
+            <ul class="list-group">
+                @foreach (var todo in _todos)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span class="@(todo.IsCompleted ? "text-decoration-line-through text-muted" : "")">
+                            @todo.Title - <small class="text-info">@todo.Category?.Name</small>
+                        </span>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => ToggleTodo(todo.Id)">
+                            @(todo.IsCompleted ? "Undo" : "Complete")
+                        </button>
+                    </li>
+                }
+            </ul>
+            <p class="mt-2 text-muted small">Loaded @_todos.Count items at @_loadedAt.ToString("HH:mm:ss.fff")</p>
+        }
+        <button class="btn btn-primary mt-2" @onclick="LoadDataAsync">Refresh</button>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int ComponentId { get; set; }
+
+    private List<TodoItem>? _todos;
+    private bool _loading = true;
+    private string? _error;
+    private DateTime _loadedAt;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    public async Task RefreshAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        _error = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            Logger.LogInformation("Component {Id}: Starting to load todos...", ComponentId);
+            
+            // Yield to allow other concurrent operations to start
+            await Task.Yield();
+            
+            // LAZY LOADING TEST: No .Include() - rely on proxy lazy loading
+            // SerializingLazyLoader + AsyncLock serializes both async queries 
+            // AND synchronous lazy loading calls using async-flow reentrancy
+            _todos = await Context.TodoItems
+                .OrderBy(t => t.Id)
+                .ToListAsync();
+            
+            // Access navigation property to trigger lazy loading
+            // This will call ILazyLoader.Load() which our SerializingLazyLoader handles
+            // The reentrant AsyncLock allows this to work even if another component
+            // has the lock, as long as we're in the same async flow
+            foreach (var todo in _todos)
+            {
+                _ = todo.Category?.Name; // Trigger lazy load
+            }
+            
+            _loadedAt = DateTime.Now;
+            Logger.LogInformation("Component {Id}: Loaded {Count} todos successfully", ComponentId, _todos.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Component {Id}: Error loading todos", ComponentId);
+            _error = $"Failed to load: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged); // Ensure UI updates on Blazor's sync context
+        }
+    }
+
+    private async Task ToggleTodo(int todoId)
+    {
+        try
+        {
+            Logger.LogInformation("Component {Id}: Toggling todo {TodoId}...", ComponentId, todoId);
+            
+            // TRANSPARENT: Just use normal EF Core - serialization happens automatically!
+            var todo = await Context.TodoItems.FindAsync(todoId);
+            if (todo != null)
+            {
+                todo.IsCompleted = !todo.IsCompleted;
+                await Context.SaveChangesAsync();
+                Logger.LogInformation("Component {Id}: Toggled todo {TodoId}", ComponentId, todoId);
+            }
+            
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Component {Id}: Error toggling todo {TodoId}", ComponentId, todoId);
+            _error = $"Failed to toggle: {ex.Message}";
+        }
+    }
+}

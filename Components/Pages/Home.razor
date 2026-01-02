@@ -1,0 +1,86 @@
+﻿@page "/"
+@rendermode InteractiveServer
+
+<PageTitle>Blazor DbContext Concurrency Demo</PageTitle>
+
+<div class="container">
+    <h1 class="mb-4">Blazor DbContext Concurrency Demo</h1>
+    
+    <div class="alert alert-info mb-4">
+        <h5>About This Demo</h5>
+        <p>
+            This demonstrates the concurrent DbContext access issue in Blazor Server apps.
+            Multiple components below will load data simultaneously, which would normally cause the error:
+            <code>"A second operation was started on this context instance before a previous operation completed."</code>
+        </p>
+        <p>
+            The solution uses a <strong>SerializingDbContext</strong> base class. Simply inherit from it instead of <code>DbContext</code>
+            and all DbSet access and SaveChanges operations are automatically serialized using a <code>SemaphoreSlim</code>.
+            <strong>No manual locking code is needed anywhere!</strong>
+        </p>
+    </div>
+    
+    <div class="row mb-3">
+        <div class="col-12">
+            <button class="btn btn-lg btn-success" @onclick="RefreshAllAsync">
+                🔄 Refresh All Components Simultaneously
+            </button>
+            <span class="ms-3 text-muted">Click to trigger concurrent data loads</span>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <TodoList @ref="_todoList1" ComponentId="1" />
+        </div>
+        <div class="col-md-6 mb-3">
+            <TodoList @ref="_todoList2" ComponentId="2" />
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <CategoryList @ref="_categoryList1" ComponentId="1" />
+        </div>
+        <div class="col-md-6 mb-3">
+            <CategoryList @ref="_categoryList2" ComponentId="2" />
+        </div>
+    </div>
+    
+    <div class="alert alert-secondary mt-4">
+        <h5>How the SerializingDbContext Works</h5>
+        <ol>
+            <li><code>AppDbContext</code> inherits from <code>SerializingDbContext</code> (instead of <code>DbContext</code>)</li>
+            <li><code>SerializingDbContext</code> has an internal <code>SemaphoreSlim(1,1)</code> - one per DbContext instance</li>
+            <li>The base class overrides <code>Set&lt;TEntity&gt;()</code> to return <code>SerializingDbSet&lt;T&gt;</code> wrappers</li>
+            <li>The wrapper intercepts <code>IAsyncQueryProvider.ExecuteAsync</code> and <code>IAsyncEnumerable.GetAsyncEnumerator</code></li>
+            <li>SaveChanges is also wrapped to serialize write operations</li>
+            <li>The semaphore is acquired BEFORE the query executes and released AFTER the DataReader is disposed</li>
+        </ol>
+        <p class="mb-0">
+            <strong>Key insight:</strong> The lock must be held until the DataReader is closed (via <code>DisposeAsync</code>),
+            not just until <code>MoveNextAsync</code> returns false. SQL Server's connection cannot have multiple open DataReaders.
+        </p>
+    </div>
+</div>
+
+@code {
+    private TodoList? _todoList1;
+    private TodoList? _todoList2;
+    private CategoryList? _categoryList1;
+    private CategoryList? _categoryList2;
+
+    private async Task RefreshAllAsync()
+    {
+        // This triggers multiple components to refresh at the same time,
+        // which would normally cause concurrency issues without the interceptor
+        var tasks = new List<Task>();
+        
+        if (_todoList1 != null) tasks.Add(_todoList1.RefreshAsync());
+        if (_todoList2 != null) tasks.Add(_todoList2.RefreshAsync());
+        if (_categoryList1 != null) tasks.Add(_categoryList1.RefreshAsync());
+        if (_categoryList2 != null) tasks.Add(_categoryList2.RefreshAsync());
+        
+        await Task.WhenAll(tasks);
+    }
+}
