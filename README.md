@@ -109,37 +109,145 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 ### Step 4: Use in Components
 
-Use DbContext normally in your Blazor components. The serialization is transparent:
+Use DbContext normally in your Blazor components. The serialization is transparent.
+
+---
+
+## The Demo Application
+
+The sample application demonstrates several concurrent database access patterns that would fail without serialization.
+
+### Entry Point: Home.razor
+
+The home page (`Components/Pages/Home.razor`) hosts four component instances that all share the same scoped `AppDbContext`:
 
 ```razor
-@page "/todos"
-@inject AppDbContext DbContext
+@page "/"
+@rendermode InteractiveServer
 
-<h3>Todos</h3>
-@if (todos == null)
+<div class="row">
+    <div class="col-md-6">
+        <TodoList @ref="_todoList1" ComponentId="1" />
+    </div>
+    <div class="col-md-6">
+        <TodoList @ref="_todoList2" ComponentId="2" />
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <CategoryList @ref="_categoryList1" ComponentId="1" />
+    </div>
+    <div class="col-md-6">
+        <CategoryList @ref="_categoryList2" ComponentId="2" />
+    </div>
+</div>
+```
+
+A "Refresh All" button triggers all four components to load data simultaneously using `Task.WhenAll`:
+
+```csharp
+private async Task RefreshAllAsync()
 {
-    <p>Loading...</p>
+    var tasks = new List<Task>();
+    
+    if (_todoList1 != null) tasks.Add(_todoList1.RefreshAsync());
+    if (_todoList2 != null) tasks.Add(_todoList2.RefreshAsync());
+    if (_categoryList1 != null) tasks.Add(_categoryList1.RefreshAsync());
+    if (_categoryList2 != null) tasks.Add(_categoryList2.RefreshAsync());
+    
+    await Task.WhenAll(tasks);
 }
-else
-{
-    @foreach (var todo in todos)
-    {
-        <div>
-            @todo.Title - @todo.Category?.Name  <!-- Lazy loading works! -->
-        </div>
-    }
-}
+```
+
+### TodoList.razor: Queries with Lazy Loading
+
+The `TodoList` component demonstrates async queries followed by lazy loading:
+
+```razor
+@inject AppDbContext Context
 
 @code {
-    private List<Todo>? todos;
-
-    protected override async Task OnInitializedAsync()
+    private async Task LoadDataAsync()
     {
-        // This is automatically serialized with other concurrent operations
-        todos = await DbContext.Set<Todo>().ToListAsync();
+        // Query todos without eager loading
+        _todos = await Context.TodoItems
+            .OrderBy(t => t.Id)
+            .ToListAsync();
+        
+        // Access navigation property to trigger lazy loading
+        foreach (var todo in _todos)
+        {
+            _ = todo.Category?.Name;  // Lazy load happens here
+        }
     }
 }
 ```
+
+This pattern exercises:
+1. **Async query execution** via `ToListAsync()`
+2. **Lazy loading** when accessing `todo.Category`
+
+### TodoList.razor: Updates with SaveChanges
+
+The same component also demonstrates write operations:
+
+```razor
+@code {
+    private async Task ToggleTodo(int todoId)
+    {
+        // Find the entity
+        var todo = await Context.TodoItems.FindAsync(todoId);
+        if (todo != null)
+        {
+            // Modify and save
+            todo.IsCompleted = !todo.IsCompleted;
+            await Context.SaveChangesAsync();
+        }
+        
+        // Reload data
+        await LoadDataAsync();
+    }
+}
+```
+
+This exercises:
+1. **FindAsync** - single entity lookup
+2. **SaveChangesAsync** - write operation
+3. **Subsequent queries** - loading fresh data after changes
+
+### CategoryList.razor: Collection Navigation Properties
+
+The `CategoryList` component demonstrates lazy loading of collection navigation properties:
+
+```razor
+@inject AppDbContext Context
+
+@code {
+    private async Task LoadDataAsync()
+    {
+        _categories = await Context.Categories
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+        
+        // Access collection navigation property
+        foreach (var category in _categories)
+        {
+            _ = category.TodoItems.Count;  // Lazy loads the collection
+        }
+    }
+}
+```
+
+### Concurrent Access Pattern
+
+When the page loads or "Refresh All" is clicked:
+
+1. All four components call their `LoadDataAsync()` methods concurrently
+2. Each method issues a query (`ToListAsync`) and then triggers lazy loading
+3. Without serialization, this causes "A second operation was started" errors
+4. With `SerializingDbContext`, operations queue up and execute one at a time
+5. All components load successfully
 
 ---
 
