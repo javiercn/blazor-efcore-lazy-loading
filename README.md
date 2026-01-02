@@ -233,13 +233,11 @@ The page shows:
 
 ## Alternative Approaches
 
-1. **Create DbContext per operation**: Use `IDbContextFactory<T>` and create a new context for each query. Doesn't support lazy loading across operations.
+1. **Disable lazy loading**: Use eager loading (`.Include()`) for all navigation properties. Requires knowing upfront what data you need.
 
-2. **Disable lazy loading**: Use eager loading (`.Include()`) for all navigation properties. Requires knowing upfront what data you need.
+2. **DbCommandInterceptor**: Serialize at the command level. Simpler but doesn't handle all EF Core scenarios properly.
 
-3. **DbCommandInterceptor**: Serialize at the command level. Simpler but doesn't handle all EF Core scenarios properly.
-
-4. **Explicit synchronization**: Use `SemaphoreSlim` manually in each component. Error-prone and repetitive.
+3. **Explicit synchronization**: Use `SemaphoreSlim` manually in each component. Error-prone and repetitive.
 
 ---
 
