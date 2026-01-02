@@ -221,20 +221,13 @@ The page shows:
 
 ---
 
-## Trade-offs
+## Benefits Over Alternative Approaches
 
-**Pros:**
-- ✅ Eliminates concurrent access errors completely
-- ✅ **Supports lazy loading** (most solutions don't!)
-- ✅ Works transparently with existing LINQ code
-- ✅ No changes needed to component code
-- ✅ Handles all operation types (queries, saves, lazy loads)
-
-**Cons:**
-- ⚠️ Serializes all DB operations (no true parallelism within one DbContext)
-- ⚠️ Slight latency increase when multiple operations queue up
-- ⚠️ Requires inheriting from `SerializingDbContext`
-- ⚠️ Uses `ConfigureAwait(false)` so code after await runs on thread pool
+- Eliminates concurrent access errors completely
+- Supports lazy loading (most solutions don't)
+- Works transparently with existing LINQ code
+- No changes needed to component code
+- Handles all operation types (queries, saves, lazy loads)
 
 ---
 
