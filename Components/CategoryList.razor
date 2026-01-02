@@ -53,14 +53,15 @@
 
     public async Task RefreshAsync()
     {
+        StateHasChanged();
         await LoadDataAsync();
+        StateHasChanged();
     }
 
     private async Task LoadDataAsync()
     {
         _loading = true;
         _error = null;
-        StateHasChanged();
 
         try
         {
@@ -87,7 +88,6 @@
         finally
         {
             _loading = false;
-            StateHasChanged();
         }
     }
 }

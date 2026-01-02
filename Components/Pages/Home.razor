@@ -46,22 +46,6 @@
             <CategoryList @ref="_categoryList2" ComponentId="2" />
         </div>
     </div>
-    
-    <div class="alert alert-secondary mt-4">
-        <h5>How the SerializingDbContext Works</h5>
-        <ol>
-            <li><code>AppDbContext</code> inherits from <code>SerializingDbContext</code> (instead of <code>DbContext</code>)</li>
-            <li><code>SerializingDbContext</code> has an internal <code>SemaphoreSlim(1,1)</code> - one per DbContext instance</li>
-            <li>The base class overrides <code>Set&lt;TEntity&gt;()</code> to return <code>SerializingDbSet&lt;T&gt;</code> wrappers</li>
-            <li>The wrapper intercepts <code>IAsyncQueryProvider.ExecuteAsync</code> and <code>IAsyncEnumerable.GetAsyncEnumerator</code></li>
-            <li>SaveChanges is also wrapped to serialize write operations</li>
-            <li>The semaphore is acquired BEFORE the query executes and released AFTER the DataReader is disposed</li>
-        </ol>
-        <p class="mb-0">
-            <strong>Key insight:</strong> The lock must be held until the DataReader is closed (via <code>DisposeAsync</code>),
-            not just until <code>MoveNextAsync</code> returns false. SQL Server's connection cannot have multiple open DataReaders.
-        </p>
-    </div>
 </div>
 
 @code {
